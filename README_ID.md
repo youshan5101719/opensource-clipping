@@ -24,6 +24,10 @@
 | **Podcast Split-Screen** | Diarization speaker otomatis via **Pyannote** dengan layout split-screen atas-bawah untuk podcast (9:16). Mendukung **3+ speaker lintas scene** dengan frozen frame fallback per-speaker |
 | **Podcast Camera Switch** | Deteksi speaker aktif otomatis dengan switching yang scene-aware — crop full 9:16 fokus ke pembicara aktif; blurred pillarbox hanya saat speaker di scene yang sama bicara bersamaan (9:16) |
 
+> 🎬 **BARU: Mode Story Clip (`--story-mode`)**  
+> Perlu merakit cerita dari potongan adegan spesifik di berbagai sumber video (misalnya untuk *campaign* brand)? Gunakan fitur Story Clip multi-sumber!  
+> 👉 **[Baca dokumentasi lengkap Story Clip di sini](docs/STORY_CLIP.md)**
+
 ## 📋 Prasyarat
 
 - **Python** 3.10+

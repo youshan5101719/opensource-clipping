@@ -24,6 +24,10 @@
 | **Podcast Split-Screen** | Auto speaker diarization via **Pyannote** with top-bottom split-screen layout for podcasts (9:16). Supports **3+ speakers across multiple scenes** with per-speaker frozen frame fallback |
 | **Podcast Camera Switch** | Auto active-speaker detection with scene-aware switching — full 9:16 crop focuses on whoever is talking; blurred pillarbox only when speakers in the same scene talk simultaneously (9:16) |
 
+> 🎬 **NEW: Story Clip Mode (`--story-mode`)**  
+> Need to assemble a narrative from multiple specific video sources (like a brand campaign)? We've just introduced the Multi-Source Story Clip Mode!  
+> 👉 **[Read the full Story Clip Documentation](docs/STORY_CLIP.md)**
+
 ## 📋 Prerequisites
 
 - **Python** 3.10+
