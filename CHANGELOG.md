@@ -7,6 +7,13 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Minor (x.Y.z)**: Incremented for new functionality introduced in a backward-compatible manner.
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
+## [v1.5.3] - 2026-05-21
+
+### Changed
+- **Hook V2 Text Overlay Removed**: Removed the `drawtext` text overlay from Hook V2 micro-hook clips. The intro clips now render as clean video-only with face-tracking crop and no burned-in text.
+
+---
+
 ## [v1.5.2] - 2026-05-20
 
 ### Fixed

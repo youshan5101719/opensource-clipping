@@ -288,16 +288,8 @@ def proses_klip(
                     label=f"Rank {rank} HookV2 Item {i}",
                 )
 
-                # Build text overlay + audio mux
-                item_text = item.get("text", "").replace("'", "\\'").replace('"', '\\"')
+                # Build video filter + audio mux
                 vf_parts = []
-                if item_text:
-                    vf_parts.append(
-                        f"drawtext=text='{item_text}'"
-                        f":fontcolor=white:fontsize={int(out_h_v2 * 0.05)}"
-                        f":x=(w-text_w)/2:y=(h-text_h)/2"
-                        f":borderw=4:bordercolor=black"
-                    )
                 if cfg.video_sharpen:
                     vf_parts.append("unsharp=5:5:0.5:5:5:0.0")
 
