@@ -31,18 +31,10 @@ fetcher = YouTubeFetcher()
 # Pull orchestration
 # ---------------------------------------------------------------------------
 
-def _do_pull_playlist(source_id, url):
-    """
-    Full pull logic:
-    1. Create pull_run (running)
-    2. Fetch playlist from YouTube
-    3. Upsert channels, videos, source_videos
-    4. Mark missing videos
-    5. Update source.last_pulled_at
-    6. Finish pull_run (success/failed)
-    Returns summary dict.
-    """
-    pull_run_id = db.create_pull_run(source_id)
+import threading
+
+def _run_async_pull(url, source_id, pull_run_id):
+    """Background worker thread for fetching a playlist."""
     stats = {
         "total_entries": 0,
         "videos_found": 0,
@@ -52,14 +44,17 @@ def _do_pull_playlist(source_id, url):
         "videos_missing_from_latest_pull": 0,
         "fetch_errors": 0,
     }
+    errors = []
 
     try:
-        result = fetcher.fetch_playlist(url)
-        pl_meta = result["playlist"]
-        videos = result["videos"]
-        errors = result.get("errors", [])
+        gen = fetcher.fetch_playlist_generator(url)
+        first = next(gen)
+        
+        pl_meta = first["playlist"]
+        total_entries = first["total_entries"]
+        stats["total_entries"] = total_entries
 
-        # Update source metadata
+        # Upsert owner channel
         owner_ch_id = None
         if pl_meta.get("channel_id"):
             owner_ch_id = db.upsert_channel({
@@ -68,7 +63,8 @@ def _do_pull_playlist(source_id, url):
                 "channel_url": pl_meta.get("channel_url"),
             })
 
-        db.upsert_source({
+        # Upsert source
+        sid = db.upsert_source({
             "source_key": f"playlist:{pl_meta['playlist_id']}",
             "source_type": "playlist",
             "playlist_id": pl_meta["playlist_id"],
@@ -80,59 +76,67 @@ def _do_pull_playlist(source_id, url):
             "owner_channel_url": pl_meta.get("channel_url"),
             "raw_json": pl_meta.get("raw_json"),
         })
+        
+        source_id = sid
 
-        stats["total_entries"] = result.get("total_entries", len(videos))
-        stats["videos_found"] = len(videos)
-        stats["fetch_errors"] = len(errors)
+        for item in gen:
+            if item["type"] == "video":
+                vmeta = item["video"]
+                i = item["position"]
+                
+                stats["videos_found"] += 1
+                db.update_pull_run_progress(pull_run_id, stats["videos_found"], total_entries)
+                
+                ch_db_id = None
+                if vmeta.get("channel_id"):
+                    ch_db_id = db.upsert_channel({
+                        "channel_id": vmeta["channel_id"],
+                        "channel_name": vmeta.get("channel_name"),
+                        "channel_url": vmeta.get("channel_url"),
+                        "handle": vmeta.get("handle"),
+                    })
 
-        for i, vmeta in enumerate(videos):
-            # Upsert channel for this video
-            ch_db_id = None
-            if vmeta.get("channel_id"):
-                ch_db_id = db.upsert_channel({
-                    "channel_id": vmeta["channel_id"],
-                    "channel_name": vmeta.get("channel_name"),
-                    "channel_url": vmeta.get("channel_url"),
-                    "handle": vmeta.get("handle"),
-                })
+                vmeta["channel_db_id"] = ch_db_id
+                video_db_id, was_new = db.upsert_video(vmeta)
+                if was_new:
+                    stats["videos_added"] += 1
+                else:
+                    stats["videos_already_exists"] += 1
 
-            vmeta["channel_db_id"] = ch_db_id
-            video_db_id, was_new = db.upsert_video(vmeta)
+                db.ensure_video_status(video_db_id)
+                db.record_pull_run_video(pull_run_id, video_db_id, position=i)
+                db.link_source_video(
+                    source_id, video_db_id, position=i,
+                    metadata_source="playlist_pull",
+                    pull_run_id=pull_run_id,
+                )
 
-            if was_new:
-                stats["videos_added"] += 1
-            else:
-                stats["videos_already_exists"] += 1
-
-            db.ensure_video_status(video_db_id)
-            db.record_pull_run_video(pull_run_id, video_db_id, position=i)
-            db.link_source_video(
-                source_id, video_db_id,
-                position=i,
-                metadata_source="playlist_pull",
-                pull_run_id=pull_run_id,
-            )
-
-        # Mark videos missing from this pull
         missing_count = db.mark_missing_videos_for_source(source_id, pull_run_id)
         stats["videos_missing_from_latest_pull"] = missing_count
 
         db.update_source_last_pulled(source_id)
+        stats["fetch_errors"] = len(errors)
         db.finish_pull_run(pull_run_id, status="success", stats=stats)
 
-        return {
-            "ok": True,
-            "pull_run_id": pull_run_id,
-            "stats": stats,
-            "errors": errors,
-        }
-
     except Exception as e:
-        db.finish_pull_run(
-            pull_run_id, status="failed",
-            stats=stats, error_message=str(e),
-        )
-        raise
+        import traceback
+        traceback.print_exc()
+        db.finish_pull_run(pull_run_id, status="failed", error_message=str(e))
+
+def _start_async_pull(url, source_id=None):
+    # If source doesn't exist yet, we create a dummy source or just start pull run on source 0
+    # Wait, pull_runs requires a valid source_id. Let's create a placeholder source if it's new.
+    if not source_id:
+        source_id = db.upsert_source({
+            "source_type": "playlist",
+            "source_key": f"temp:{url}",
+            "title": "Loading Playlist...",
+            "url": url,
+        })
+    pull_run_id = db.create_pull_run(source_id)
+    t = threading.Thread(target=_run_async_pull, args=(url, source_id, pull_run_id), daemon=True)
+    t.start()
+    return {"ok": True, "source_id": source_id, "pull_run_id": pull_run_id, "status": "running"}
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +250,14 @@ class TrackerHandler(BaseHTTPRequestHandler):
             channels = db.get_channels_with_stats()
             return self._send_json({"channels": channels})
 
+        # Pull Runs
+        if path == "/api/sources/pull_runs/active":
+            conn = db.get_connection()
+            rows = conn.execute("SELECT * FROM pull_runs ORDER BY started_at DESC LIMIT 50").fetchall()
+            conn.close()
+            return self._send_json({"pull_runs": [dict(r) for r in rows]})
+
+
         m = re.match(r'^/api/channels/(\d+)$', path)
         if m:
             channel = db.get_channel(int(m.group(1)))
@@ -330,85 +342,12 @@ class TrackerHandler(BaseHTTPRequestHandler):
                 return self._send_error_json(400, "Invalid playlist URL")
 
             try:
-                # Fetch playlist
-                result = fetcher.fetch_playlist(url)
-                pl_meta = result["playlist"]
-                videos = result["videos"]
-                errors = result.get("errors", [])
-
-                # Upsert owner channel
-                owner_ch_id = None
-                if pl_meta.get("channel_id"):
-                    owner_ch_id = db.upsert_channel({
-                        "channel_id": pl_meta["channel_id"],
-                        "channel_name": pl_meta.get("channel_name"),
-                        "channel_url": pl_meta.get("channel_url"),
-                    })
-
-                source_id = db.upsert_source({
-                    "source_key": f"playlist:{pl_meta['playlist_id']}",
-                    "source_type": "playlist",
-                    "playlist_id": pl_meta["playlist_id"],
-                    "title": pl_meta["title"],
-                    "url": pl_meta["url"],
-                    "thumbnail": pl_meta.get("thumbnail"),
-                    "owner_channel_db_id": owner_ch_id,
-                    "owner_channel_name": pl_meta.get("channel_name"),
-                    "owner_channel_url": pl_meta.get("channel_url"),
-                    "raw_json": pl_meta.get("raw_json"),
-                })
-
-                pull_run_id = db.create_pull_run(source_id)
-                stats = {
-                    "total_entries": result.get("total_entries", len(videos)),
-                    "videos_found": len(videos),
-                    "videos_added": 0,
-                    "videos_already_exists": 0,
-                    "videos_updated": 0,
-                    "videos_missing_from_latest_pull": 0,
-                    "fetch_errors": len(errors),
-                }
-
-                for i, vmeta in enumerate(videos):
-                    ch_db_id = None
-                    if vmeta.get("channel_id"):
-                        ch_db_id = db.upsert_channel({
-                            "channel_id": vmeta["channel_id"],
-                            "channel_name": vmeta.get("channel_name"),
-                            "channel_url": vmeta.get("channel_url"),
-                            "handle": vmeta.get("handle"),
-                        })
-
-                    vmeta["channel_db_id"] = ch_db_id
-                    video_db_id, was_new = db.upsert_video(vmeta)
-                    if was_new:
-                        stats["videos_added"] += 1
-                    else:
-                        stats["videos_already_exists"] += 1
-
-                    db.ensure_video_status(video_db_id)
-                    db.record_pull_run_video(pull_run_id, video_db_id, position=i)
-                    db.link_source_video(
-                        source_id, video_db_id, position=i,
-                        metadata_source="playlist_pull",
-                        pull_run_id=pull_run_id,
-                    )
-
-                db.update_source_last_pulled(source_id)
-                db.finish_pull_run(pull_run_id, status="success", stats=stats)
-
-                return self._send_json({
-                    "ok": True,
-                    "source_id": source_id,
-                    "pull_run_id": pull_run_id,
-                    "playlist": pl_meta,
-                    "stats": stats,
-                    "errors": errors,
-                }, 201)
-
+                # Start async pull
+                result = _start_async_pull(url)
+                return self._send_json(result, 202)
             except Exception as e:
                 traceback.print_exc()
-                return self._send_error_json(500, f"Failed to fetch playlist: {str(e)}")
+                return self._send_error_json(500, f"Failed to start fetch: {str(e)}")
 
         # Refresh/Pull Again
         m = re.match(r'^/api/sources/(\d+)/refresh$', path)
@@ -423,11 +362,23 @@ class TrackerHandler(BaseHTTPRequestHandler):
                 return self._send_error_json(400, "Source has no URL to refresh")
 
             try:
-                result = _do_pull_playlist(source_id, url)
-                return self._send_json(result)
+                result = _start_async_pull(url, source_id)
+                return self._send_json(result, 202)
             except Exception as e:
                 traceback.print_exc()
                 return self._send_error_json(500, f"Pull failed: {str(e)}")
+
+        m = re.match(r'^/api/channels/(\d+)/avatar$', path)
+        if m:
+            channel_id = int(m.group(1))
+            channel = db.get_channel(channel_id)
+            if not channel or not channel.get("url"):
+                return self._send_error_json(404, "Channel not found or no URL")
+            from youtube_fetcher import fetch_channel_thumbnail
+            t = fetch_channel_thumbnail(channel["url"])
+            if t:
+                db.update_channel_thumbnail(channel_id, t)
+            return self._send_json({"thumbnail_url": t})
 
         # Add manual video
         if path == "/api/videos/manual":
@@ -604,7 +555,10 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n  Shutting down...")
-        server.shutdown()
+        import os
+        os._exit(0)
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

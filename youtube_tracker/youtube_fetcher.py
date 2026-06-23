@@ -67,6 +67,21 @@ def validate_youtube_url(url):
         return "video"
     return None
 
+def fetch_channel_thumbnail(channel_url):
+    """Scrape the channel profile picture from a YouTube channel URL via og:image."""
+    if not channel_url:
+        return None
+    try:
+        import urllib.request
+        req = urllib.request.Request(channel_url, headers={'User-Agent': 'Mozilla/5.0'})
+        html = urllib.request.urlopen(req, timeout=5).read().decode('utf-8', errors='ignore')
+        m = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Metadata normalizers
@@ -249,12 +264,13 @@ class YouTubeFetcher:
 
         raise last_error
 
-    def fetch_playlist(self, url_or_id):
+    def fetch_playlist_generator(self, url_or_id):
         """
-        Fetch playlist metadata and ALL video entries.
+        Fetch playlist metadata and yield it, then fetch ALL video entries and yield them.
         Uses playlistend=-1 to disable the default 100-item limit.
-        Each video fetch retries up to MAX_RETRIES times.
-        Returns {"playlist": {...}, "videos": [...]}.
+        Returns a generator yielding dicts:
+          {"type": "playlist", "playlist": {...}, "total_entries": int}
+          {"type": "video", "video": {...}, "position": int}
         """
         yt_dlp = self._get_ydl()
 
@@ -293,10 +309,13 @@ class YouTubeFetcher:
         total_entries = len(entries)
         print(f"  [Playlist] Found {total_entries} entries in playlist", file=sys.stderr)
 
-        # Step 2: For each entry, fetch full video metadata with retry
-        videos = []
-        errors = []
+        yield {
+            "type": "playlist",
+            "playlist": playlist_meta,
+            "total_entries": total_entries,
+        }
 
+        # Step 2: For each entry, fetch full video metadata with retry
         opts_video = {
             "skip_download": True,
             "quiet": True,
@@ -307,12 +326,10 @@ class YouTubeFetcher:
 
         for i, entry in enumerate(entries):
             if not entry:
-                errors.append(f"Entry #{i} is None/empty")
                 continue
 
             entry_id = entry.get("id") or entry.get("url")
             if not entry_id:
-                errors.append(f"Entry #{i} has no id or url")
                 continue
 
             # Progress log
@@ -333,11 +350,13 @@ class YouTubeFetcher:
                         normalized = normalize_video_metadata(video_info)
                         if normalized:
                             normalized["_playlist_position"] = i
-                            videos.append(normalized)
+                            yield {
+                                "type": "video",
+                                "video": normalized,
+                                "position": i
+                            }
                             success = True
                             break
-                        else:
-                            raise ValueError(f"Could not normalize metadata for {entry_id}")
                     else:
                         raise ValueError(f"No info returned for {entry_id}")
 
@@ -345,20 +364,9 @@ class YouTubeFetcher:
                     last_error = e
                     if attempt < MAX_RETRIES:
                         delay = RETRY_DELAY_BASE ** attempt
-                        print(f"  {progress} [Retry {attempt}/{MAX_RETRIES}] {entry_id}: {e} — retrying in {delay}s...",
+                        print(f"  [Retry {attempt}/{MAX_RETRIES}] Failed to fetch {entry_id}: {e} — retrying in {delay}s...",
                               file=sys.stderr)
                         time.sleep(delay)
 
             if not success:
-                error_msg = f"Failed after {MAX_RETRIES} attempts for {entry_id}: {last_error}"
-                errors.append(error_msg)
-                print(f"  {progress} ✗ {error_msg}", file=sys.stderr)
-
-        print(f"  [Playlist] Done: {len(videos)} videos fetched, {len(errors)} errors", file=sys.stderr)
-
-        return {
-            "playlist": playlist_meta,
-            "videos": videos,
-            "errors": errors,
-            "total_entries": total_entries,
-        }
+                print(f"  [Error] Exhausted retries for {entry_id}: {last_error}", file=sys.stderr)

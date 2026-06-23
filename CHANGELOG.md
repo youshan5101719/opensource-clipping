@@ -8,6 +8,12 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
 
+## [v1.7.2] - 2026-06-23
+
+### Added
+- **Asynchronous Fetching**: Fetching playlists is now done asynchronously in the background. The user interface remains responsive and displays a real-time progress bar to track the fetching process.
+- **Channel Avatars**: YouTube channel profile pictures are automatically fetched in the background and rendered natively in the UI.
+
 ## [v1.7.1] - 2026-06-23
 
 ### Added

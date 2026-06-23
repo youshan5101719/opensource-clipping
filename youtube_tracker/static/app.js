@@ -241,6 +241,51 @@
   window.addEventListener('hashchange', handleRoute);
 
   // -----------------------------------------------------------------------
+  // Progress Polling
+  // -----------------------------------------------------------------------
+  window._activePulls = {};
+  
+  async function pollProgress() {
+    try {
+      const res = await api('/api/sources/pull_runs/active');
+      const runs = res.pull_runs || [];
+      const running = runs.filter(r => r.status === 'running');
+      
+      let changed = false;
+      
+      for (const r of running) {
+        window._activePulls[r.source_id] = r;
+        const bar = document.getElementById(`pull-progress-${r.source_id}`);
+        if (bar) {
+          const pct = r.progress_total > 0 ? Math.floor((r.progress_current / r.progress_total) * 100) : 0;
+          bar.innerHTML = `
+            <div style="font-size: 0.8rem; font-weight: 600; color: var(--primary); margin-bottom: 4px;">
+              Fetching... ${r.progress_current} / ${r.progress_total} (${pct}%)
+            </div>
+            <progress class="progress progress-primary w-full" value="${r.progress_current}" max="${r.progress_total}"></progress>
+          `;
+          bar.style.display = 'block';
+        }
+      }
+
+      // Check if any previously running pulls have finished
+      for (const sid of Object.keys(window._activePulls)) {
+        if (!running.find(r => r.source_id == sid)) {
+          delete window._activePulls[sid];
+          changed = true;
+          toast('Background fetch completed!', 'success');
+        }
+      }
+
+      if (changed) {
+        handleRoute(); // Refresh UI to show new videos
+      }
+    } catch(e) {}
+  }
+
+  setInterval(pollProgress, 2000);
+
+  // -----------------------------------------------------------------------
   // Dashboard
   // -----------------------------------------------------------------------
 
@@ -311,6 +356,7 @@
               </div>
             </div>
             ${progressBar(s.used_count || 0, s.candidate_count || 0, s.skipped_count || 0, s.unused_count || 0, total)}
+            <div id="pull-progress-${s.id}" style="display:none; margin-top: 10px;"></div>
             <div class="source-meta text-xs mt-2">
               ${s.last_pulled_at ? 'Last pull: ' + fmtDate(s.last_pulled_at) : 'Never pulled'}
             </div>
@@ -345,15 +391,20 @@
       try {
         if (type === 'playlist') {
           const res = await api('/api/sources/playlist', { body: { url } });
-          const st = res.stats;
-          const errCount = st.fetch_errors || 0;
-          const msg = `Playlist added! ${st.total_entries} entries in playlist, ${st.videos_found} fetched, ${st.videos_added} new.${errCount ? ` (${errCount} errors)` : ''}`;
-          toast(msg, 'success');
+          if (res.status === 'running') {
+            toast('Playlist fetching started in background. You can navigate away safely.', 'success');
+          } else {
+            const st = res.stats || {};
+            const errCount = st.fetch_errors || 0;
+            const msg = `Playlist added! ${st.total_entries} entries in playlist, ${st.videos_found} fetched, ${st.videos_added} new.${errCount ? ` (${errCount} errors)` : ''}`;
+            toast(msg, 'success');
+          }
         } else {
           const res = await api('/api/videos/manual', { body: { url } });
           toast(`Video "${res.title}" added!`, 'success');
         }
         document.getElementById(inputId).value = '';
+        pollProgress();
         handleRoute();
       } catch (err) {
         toast(err.message, 'error');
@@ -400,6 +451,7 @@
               </div>
             </div>
             ${progressBar(s.total_used || 0, s.total_candidate || 0, s.total_skipped || 0, s.total_unused || 0, total)}
+            <div id="pull-progress-${s.id}" style="display:none; margin-top: 10px;"></div>
             
             <div class="source-footer">
               <span class="last-pull">Last pull: ${fmtDate(s.last_pulled_at) || 'Never pulled'}</span>
@@ -510,6 +562,7 @@
             ${source.last_pulled_at ? ' · Last pull: ' + fmtDate(source.last_pulled_at) : ''}
           </div>
           ${progressBar(source.used_count || 0, source.candidate_count || 0, source.skipped_count || 0, source.unused_count || 0, total)}
+          <div id="pull-progress-${source.id}" style="display:none; margin-top: 10px;"></div>
           <div class="source-detail-actions">
             ${source.source_type !== 'manual' ? `<button class="btn btn-primary btn-sm" id="pull-again-btn" onclick="window._refreshSource(${source.id})">🔄 Pull Again</button>` : ''}
             <button class="btn btn-secondary btn-sm" onclick="window.location.hash='#/'">← Back</button>
@@ -594,6 +647,26 @@
     renderVideos();
   });
 
+  async function fetchAvatar(chId, elementId) {
+    if (window._fetchingAvatars && window._fetchingAvatars.has(chId)) return;
+    window._fetchingAvatars = window._fetchingAvatars || new Set();
+    window._fetchingAvatars.add(chId);
+    
+    try {
+      const res = await api(`/api/channels/${chId}/avatar`, {method: 'POST'});
+      if (res.thumbnail_url) {
+        const el = document.getElementById(elementId);
+        if (el) {
+          const img = document.createElement('img');
+          img.src = res.thumbnail_url;
+          img.className = 'channel-avatar';
+          if (el.style.cssText) img.style.cssText = el.style.cssText;
+          el.replaceWith(img);
+        }
+      }
+    } catch(e) {}
+  }
+
   // -----------------------------------------------------------------------
   // Channels
   // -----------------------------------------------------------------------
@@ -617,7 +690,11 @@
         const initials = (ch.name || '?').substring(0, 2).toUpperCase();
         const avatarHtml = ch.thumbnail_url 
           ? `<img src="${escHtml(ch.thumbnail_url)}" class="channel-avatar" alt="" onerror="this.outerHTML='<div class=\\'channel-avatar\\'>${initials}</div>'">`
-          : `<div class="channel-avatar">${initials}</div>`;
+          : `<div class="channel-avatar" id="ch-grid-avatar-${ch.id}">${initials}</div>`;
+        
+        if (!ch.thumbnail_url) {
+          setTimeout(() => fetchAvatar(ch.id, `ch-grid-avatar-${ch.id}`), 50);
+        }
         html += `
           <div class="channel-card" onclick="window.location.hash='#/channel/${ch.id}'">
             <div class="channel-card-header">
@@ -662,7 +739,11 @@
       const initials = (ch.name || '?').substring(0, 2).toUpperCase();
       const avatarHtml = ch.thumbnail_url 
         ? `<img src="${escHtml(ch.thumbnail_url)}" class="channel-avatar" style="width:64px;height:64px;font-size:1.6rem;" alt="" onerror="this.outerHTML='<div class=\\'channel-avatar\\' style=\\'width:64px;height:64px;font-size:1.6rem;\\'>${initials}</div>'">`
-        : `<div class="channel-avatar" style="width:64px;height:64px;font-size:1.6rem;">${initials}</div>`;
+        : `<div class="channel-avatar" id="ch-detail-avatar-${ch.id}" style="width:64px;height:64px;font-size:1.6rem;">${initials}</div>`;
+        
+      if (!ch.thumbnail_url) {
+        setTimeout(() => fetchAvatar(ch.id, `ch-detail-avatar-${ch.id}`), 50);
+      }
 
       let html = `
         <div class="page-header" style="display:flex;align-items:center;gap:16px;">
@@ -1127,15 +1208,23 @@
     btn.textContent = '⏳ Pulling...';
     try {
       const result = await api(`/api/sources/${sourceId}/refresh`, { method: 'POST' });
-      const s = result.stats;
-      const errCount = s.fetch_errors || 0;
-      const msg = `Pull complete: ${s.total_entries} entries, ${s.videos_found} fetched, ${s.videos_added} new, ${s.videos_missing_from_latest_pull} missing.${errCount ? ` (${errCount} errors)` : ''}`;
-      toast(msg, 'success');
+      if (result.status === 'running') {
+        toast('Playlist refresh started in background.', 'success');
+        pollProgress();
+      } else {
+        const s = result.stats || {};
+        const errCount = s.fetch_errors || 0;
+        const msg = `Pull complete: ${s.total_entries} entries, ${s.videos_found} fetched, ${s.videos_added} new, ${s.videos_missing_from_latest_pull} missing.${errCount ? ` (${errCount} errors)` : ''}`;
+        toast(msg, 'success');
+      }
       handleRoute();
     } catch (err) {
       toast(`Pull failed: ${err.message}`, 'error');
-      btn.disabled = false;
-      btn.textContent = '🔄 Pull Again';
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Pull Again';
+      }
     }
   };
 

@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS pull_runs (
   videos_updated INTEGER DEFAULT 0,
   videos_already_exists INTEGER DEFAULT 0,
   videos_missing_from_latest_pull INTEGER DEFAULT 0,
+  progress_current INTEGER DEFAULT 0,
+  progress_total INTEGER DEFAULT 0,
   error_message TEXT,
 
   FOREIGN KEY (source_id)
@@ -597,14 +599,26 @@ def create_pull_run(source_id):
     conn = get_connection()
     try:
         cur = conn.execute("""
-            INSERT INTO pull_runs (source_id, started_at, status)
-            VALUES (?, ?, 'running')
+            INSERT INTO pull_runs (source_id, started_at, status, progress_current, progress_total)
+            VALUES (?, ?, 'running', 0, 0)
         """, (source_id, _now()))
         conn.commit()
         return cur.lastrowid
     finally:
         conn.close()
 
+def update_pull_run_progress(pull_run_id, current, total):
+    """Update progress metrics for a running pull."""
+    conn = get_connection()
+    try:
+        conn.execute("""
+            UPDATE pull_runs
+            SET progress_current = ?, progress_total = ?
+            WHERE id = ?
+        """, (current, total, pull_run_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 def finish_pull_run(pull_run_id, status="success", stats=None, error_message=None):
     """Mark a pull run as finished."""
@@ -877,6 +891,14 @@ def get_channels_with_stats():
     finally:
         conn.close()
 
+
+def update_channel_thumbnail(channel_id, thumbnail_url):
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE channels SET thumbnail_url = ? WHERE id = ?", (thumbnail_url, channel_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 def get_channel(channel_id):
     """Get a single channel with stats."""
