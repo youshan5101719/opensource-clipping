@@ -278,16 +278,16 @@ class YouTubeFetcher:
         url = f"https://www.youtube.com/playlist?list={pl_id}" if pl_id else url_or_id
 
         # Step 1: Fetch playlist with flat extraction to get ALL video IDs
-        # Key fix: playlistend=-1 disables the default limit
         opts_flat = {
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
-            "extract_flat": True,
+            "extract_flat": "in_playlist",
             "ignoreerrors": True,
-            "playlistend": -1,          # No limit — fetch ALL entries
-            "lazy_playlist": False,     # Force eager evaluation
+            "playlist_items": "1:",
+            "lazy_playlist": False,
         }
+        
 
         print(f"  [Playlist] Fetching playlist index: {url}", file=sys.stderr)
 
