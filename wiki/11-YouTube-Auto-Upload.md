@@ -10,6 +10,8 @@ OpenSource Clipping includes a standalone YouTube auto-uploader with scheduling 
 2. OAuth 2.0 credentials (`youtube_token.json`) configured for your YouTube channel
 3. Generated clips in the `outputs/` directory with a `render_manifest.json`
 
+> **First time?** Follow the complete **[YouTube API Setup Guide](YouTube-API-Setup-Guide)** for step-by-step instructions with screenshots on creating your Google Cloud project, OAuth credentials, and generating the token.
+
 ---
 
 ## Setup

@@ -8,6 +8,11 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
 
+## [v1.7.6] - 2026-06-26
+
+### Added
+- **Wiki Documentation**: Created a comprehensive GitHub Wiki with 15 pages covering Getting Started, CLI Reference, Feature Guides, Story Clip Mode, Colab deployment, and a detailed YouTube API Setup Guide.
+
 ## [v1.7.5] - 2026-06-26
 
 ### Added

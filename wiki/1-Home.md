@@ -24,6 +24,7 @@ Welcome to the **OpenSource Clipping** wiki! This is the central hub for all doc
 | 12 | **[Google Colab Guide](Google-Colab-Guide)** | Running the pipeline on Google Colab (free GPU) |
 | 13 | **[Troubleshooting & FAQ](Troubleshooting-and-FAQ)** | Common errors, fixes, and frequently asked questions |
 | 14 | **[Contributing](Contributing)** | How to contribute, report issues, and support the project |
+| 15 | **[YouTube API Setup Guide](YouTube-API-Setup-Guide)** | Step-by-step guide to create OAuth credentials for auto-upload |
 
 ---
 
