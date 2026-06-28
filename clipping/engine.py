@@ -23,11 +23,11 @@ def _build_ydl_format_selector(download_source_height: str | int) -> str:
     """
     # Skip AV1 codec as it lacks HW acceleration on many platforms (e.g., Colab T4)
     # and causes decoding failures in OpenCV/FFmpeg software fallbacks.
-    # Note: Using [vcodec!^=av01] to match the start of the codec ID.
-    codec_filter = "[vcodec!^=av01]"
+    # Note: Using [vcodec!*=av01] to safely ensure it does not contain 'av01' anywhere.
+    codec_filter = "[vcodec!*=av01]"
 
     if download_source_height == "max":
-        return f"bestvideo{codec_filter}+bestaudio/best{codec_filter}/best"
+        return f"bestvideo{codec_filter}+bestaudio/best{codec_filter}"
 
     try:
         h_val = int(download_source_height)
@@ -35,19 +35,17 @@ def _build_ydl_format_selector(download_source_height: str | int) -> str:
         h_val = 0
 
     if 0 < h_val <= 1080:
-        # For standard resolutions, strictly prefer native MP4 (H.264/AAC)
+        # For standard resolutions, strictly prefer native MP4 (H.264/AAC), ensuring no AV1 in mp4
         return (
-            f"bestvideo[height<=?{h_val}][ext=mp4]+bestaudio[ext=m4a]/"
+            f"bestvideo[height<=?{h_val}][ext=mp4]{codec_filter}+bestaudio[ext=m4a]/"
             f"bestvideo[height<=?{h_val}]{codec_filter}+bestaudio/"
-            f"best[height<=?{h_val}][ext=mp4]/"
-            f"best[height<=?{h_val}]{codec_filter}/"
-            f"best"
+            f"best[height<=?{h_val}][ext=mp4]{codec_filter}/"
+            f"best[height<=?{h_val}]{codec_filter}"
         )
 
     return (
         f"bestvideo[height<=?{download_source_height}]{codec_filter}+bestaudio/"
-        f"best[height<=?{download_source_height}]{codec_filter}/"
-        f"best"
+        f"best[height<=?{download_source_height}]{codec_filter}"
     )
 
 
