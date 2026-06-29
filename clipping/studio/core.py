@@ -787,6 +787,7 @@ def proses_klip(
                     "-map", "[v_out]", "-map", "[a_out]", "-t", str(vo_duration)
                 ])
                 cmd_vo_base += std_p
+                cmd_vo_base.append(output_vo_ts)
                 
                 try:
                     subprocess.run(cmd_vo_base, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
