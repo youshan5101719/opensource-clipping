@@ -8,6 +8,12 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
 
+## [v1.8.1] - 2026-06-29
+
+### Fixed
+- **AV1 Codec Filter Bug**: Fixed an issue where `yt-dlp` would download AV1 videos (which crash Colab T4 hardware decoding) when `--source-height 1080` or `max` was used. AV1 is now strictly excluded even if packaged inside an `.mp4` container.
+- **Voice-Over `use-dlp-subs` Crash**: Fixed a `KeyError: 'text'` crash that prevented voice-over generation when using the `--use-dlp-subs` flag, by safely supporting the YouTube JSON3 segment format.
+
 ## [v1.8.0] - 2026-06-29
 
 ### Added
