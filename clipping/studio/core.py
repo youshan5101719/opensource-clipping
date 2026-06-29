@@ -626,10 +626,8 @@ def proses_klip(
             vo_data = clip.get("voiceover")
             
             if not cfg.no_subs:
-                # If VO is active, use VO segments for subtitles instead of original transcript
-                subs_data = vo_data["segments"] if vo_data else data_segmen
                 buat_file_ass(
-                    subs_data,
+                    data_segmen,
                     m_start,
                     m_end,
                     a_main,
@@ -641,7 +639,7 @@ def proses_klip(
                     source_dim=source_dim,
                 )
 
-            print(f"   🎬 [Main] FFmpeg {'skip subtitle' if cfg.no_subs else 'burn subtitle'} + audio ducking...")
+            print(f"   🎬 [Main] FFmpeg {'skip subtitle' if cfg.no_subs else 'burn subtitle'}...")
             esc_ass_main = escape_ffmpeg_filter_value(os.path.abspath(a_main)) if not cfg.no_subs else ""
             esc_fontsdir = escape_ffmpeg_filter_value(os.path.abspath(cfg.font_dir))
 
@@ -671,10 +669,11 @@ def proses_klip(
             for input_silent_ts, output_final_ts in zip(runs, out_targets):
                 lbl_suffix = "" if input_silent_ts == m_silent else " (DEV)"
                 
-                v_filter_parts = [f"subtitles={esc_ass_main}:fontsdir={esc_fontsdir}"] if not cfg.no_subs else ["null"]
+                v_filter_parts = [f"subtitles={esc_ass_main}:fontsdir={esc_fontsdir}"] if not cfg.no_subs else []
                 if cfg.video_sharpen:
                     v_filter_parts.append("unsharp=5:5:0.5:5:5:0.0")
-                v_filter = ",".join(v_filter_parts)
+                
+                v_filter = ",".join(v_filter_parts) if v_filter_parts else "null"
 
                 # Initialize FFmpeg command
                 cmd_m_base = [
@@ -686,44 +685,12 @@ def proses_klip(
 
                 # Map inputs
                 input_idx_bgm = -1
-                input_idx_vo = -1
                 
                 if aktif_bgm and file_bgm:
                     cmd_m_base.extend(["-stream_loop", "-1", "-i", file_bgm])
                     input_idx_bgm = 2
                     
-                if vo_data and os.path.exists(vo_data["audio_path"]):
-                    cmd_m_base.extend(["-i", vo_data["audio_path"]])
-                    input_idx_vo = 3 if (aktif_bgm and file_bgm) else 2
-
-                # Audio mixing logic
-                if input_idx_vo != -1:
-                    # Voice-over active: Duck original audio severely, overlay VO, optionally duck BGM under VO
-                    orig_vol = getattr(cfg, "original_volume", 0.15)
-                    vo_vol = getattr(cfg, "voiceover_volume", 1.0)
-                    
-                    audio_filters = []
-                    audio_filters.append(f"[1:a]volume={orig_vol}[orig_ducked]")
-                    audio_filters.append(f"[{input_idx_vo}:a]volume={vo_vol}[vo_loud]")
-                    
-                    if input_idx_bgm != -1:
-                        # Duck BGM under VO using sidechain or just lower volume
-                        bgm_vol = cfg.bgm_base_volume
-                        audio_filters.append(f"[{input_idx_bgm}:a]volume={bgm_vol}[bgm_vol]")
-                        # Mix all three
-                        audio_filters.append("[orig_ducked][bgm_vol][vo_loud]amix=inputs=3:duration=first:dropout_transition=2[a_out]")
-                    else:
-                        # Mix only original and VO
-                        audio_filters.append("[orig_ducked][vo_loud]amix=inputs=2:duration=first:dropout_transition=2[a_out]")
-                        
-                    filter_complex = f"[0:v]{v_filter}[v_out]; " + "; ".join(audio_filters)
-                    
-                    cmd_m_base.extend([
-                        "-filter_complex", filter_complex,
-                        "-map", "[v_out]", "-map", "[a_out]", "-shortest"
-                    ])
-                    
-                elif input_idx_bgm != -1:
+                if input_idx_bgm != -1:
                     # Only BGM, no VO
                     bgm_mode = getattr(cfg, "bgm_mode", "ducking")
                     audio_filter = build_bgm_filter(
@@ -738,7 +705,7 @@ def proses_klip(
                     ])
                     
                 else:
-                    # No VO, No BGM — just original audio with subtitles
+                    # No BGM — just original audio with subtitles
                     cmd_m_base.extend(["-map", "0:v:0", "-map", "1:a:0"])
                     if v_filter != "null":
                         cmd_m_base.extend(["-vf", v_filter])
@@ -751,6 +718,77 @@ def proses_klip(
                 )
                 if rc_m != 0:
                     raise RuntimeError(f"FFmpeg main{lbl_suffix} gagal:\n" + "\n".join(err_m))
+
+        # VOICE-OVER INTRO GENERATION
+        vo_ts = None
+        vo_ts_dev = None
+        if vo_data and os.path.exists(vo_data["audio_path"]):
+            vo_ts = os.path.join(cfg.outputs_dir, f"vo_intro_{rank}.ts")
+            vo_ts_dev = os.path.join(cfg.outputs_dir, f"vo_intro_{rank}_dev.ts")
+            print("   📸 [VO] Render voice-over intro (freeze frame + equalizer)...")
+            
+            # Extract first frame
+            frame_path = os.path.join(cfg.outputs_dir, f"vo_bg_{rank}.jpg")
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-ss", str(m_start), "-i", cfg.file_video_asli,
+                "-vframes", "1", "-q:v", "2", frame_path
+            ], check=True)
+            
+            vo_duration = float(vo_data["segments"][-1]["end"]) + 0.5 if vo_data.get("segments") else 5.0
+            
+            # Generate for both normal and dev dual if needed
+            out_targets_vo = [vo_ts] if not dev_dual else [vo_ts, vo_ts_dev]
+            
+            for output_vo_ts in out_targets_vo:
+                vo_w, vo_h = _get_render_dims(cfg, rasio, source_h=sh)
+                if dev_dual and output_vo_ts == vo_ts_dev:
+                    vo_w, vo_h = 1920, 1080
+                elif getattr(cfg, "dev_mode_with_output_merge", False):
+                    vo_w, vo_h = 2648, 1220
+                elif getattr(cfg, "dev_mode", False) and not dev_dual:
+                    vo_w, vo_h = 1920, 1080
+                    
+                v_filter_vo = (
+                    f"scale={vo_w}:{vo_h}:force_original_aspect_ratio=increase,crop={vo_w}:{vo_h},"
+                    f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.7:t=fill[v_bg]; "
+                    f"[1:a]asplit=2[vo_a][vo_wave_in]; "
+                    f"[vo_wave_in]showwaves=s=800x300:mode=cline:colors=0x00FFFF:rate=30,format=rgba,colorkey=black:0.1:0.1[wave_v]; "
+                    f"[v_bg][wave_v]overlay=(W-w)/2:(H-h)/2:shortest=1[v_out]"
+                )
+                
+                cmd_vo_base = [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-loop", "1", "-framerate", "30", "-i", frame_path,
+                    "-i", vo_data["audio_path"]
+                ]
+                
+                # Audio mixing with BGM for VO intro
+                if aktif_bgm and file_bgm:
+                    cmd_vo_base.extend(["-stream_loop", "-1", "-i", file_bgm])
+                    bgm_vol = cfg.bgm_base_volume
+                    vo_vol = getattr(cfg, "voiceover_volume", 1.0)
+                    audio_filter_vo = (
+                        f"[2:a]volume={bgm_vol}[bgm_vol]; "
+                        f"[vo_a]volume={vo_vol}[vo_loud]; "
+                        f"[bgm_vol][vo_loud]amix=inputs=2:duration=first:dropout_transition=2[a_out]"
+                    )
+                    v_filter_vo += f"; {audio_filter_vo}"
+                else:
+                    vo_vol = getattr(cfg, "voiceover_volume", 1.0)
+                    v_filter_vo += f"; [vo_a]volume={vo_vol}[a_out]"
+                    
+                cmd_vo_base.extend([
+                    "-filter_complex", v_filter_vo,
+                    "-map", "[v_out]", "-map", "[a_out]", "-t", str(vo_duration)
+                ])
+                cmd_vo_base += std_p
+                
+                subprocess.run(cmd_vo_base, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+            if os.path.exists(frame_path):
+                os.remove(frame_path)
+
 
         # FINAL CONCAT
         print("   🔗 [Final] Menyelesaikan clip akhir...")
@@ -771,20 +809,28 @@ def proses_klip(
             concat_runs.append((out_vid_dev, m_ts_dev, h_dev_target, (1920, 1080)))
             
         for final_path, main_vid_ts, hook_vid_ts, dims in concat_runs:
-            # Determine concat strategy based on hook type
+            vo_vid_ts = vo_ts_dev if (dev_dual and final_path.endswith("_dev_mode_ready.mp4")) else vo_ts
+            
+            # Determine concat strategy
+            parts = []
+            
+            # 1. Hook
             if use_hook_v2 and os.path.exists(hook_vid_ts):
-                # Hook V2: h_ts already contains items + transitions, concat directly
-                concat_str = f"concat:{hook_vid_ts}|{main_vid_ts}"
-            elif aktif_hook:
-                # Hook V1: need glitch transition between hook and main
+                parts.append(hook_vid_ts)
+            elif aktif_hook and os.path.exists(hook_vid_ts):
+                parts.append(hook_vid_ts)
                 cur_glitch = siapkan_glitch_video(rasio, cfg, video_encoder, source_h=sh, custom_dims=dims)
-                if cur_glitch and os.path.exists(cur_glitch) and os.path.exists(hook_vid_ts):
-                    concat_str = f"concat:{hook_vid_ts}|{cur_glitch}|{main_vid_ts}"
-                else:
-                    concat_str = f"concat:{main_vid_ts}"
-            else:
-                # No hook at all
-                concat_str = f"concat:{main_vid_ts}"
+                if cur_glitch and os.path.exists(cur_glitch):
+                    parts.append(cur_glitch)
+                    
+            # 2. Voice-Over Intro
+            if vo_vid_ts and os.path.exists(vo_vid_ts):
+                parts.append(vo_vid_ts)
+                
+            # 3. Main Clip
+            parts.append(main_vid_ts)
+
+            concat_str = "concat:" + "|".join(parts)
 
             subprocess.run(
                 [
