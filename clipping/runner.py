@@ -220,8 +220,7 @@ def run_pipeline(cfg) -> list[dict]:
                             "segments": vo_segments,
                             "voice": cfg.voiceover_voice
                         }
-                        # Pre-check the safety checklist since they have VO now
-                        klip.setdefault("safety_checklist", {})["has_original_narration"] = True
+
             except Exception as e:
                 print(f"   ⚠️ Gagal generate voice-over untuk Rank {klip['rank']}: {e}")
 
@@ -248,15 +247,6 @@ def run_pipeline(cfg) -> list[dict]:
         # Attach source URL so metadata.py can auto-add source credit
         if not row.get("source_url"):
             row["source_url"] = getattr(cfg, "url_youtube", None)
-        # Safety checklist — default unchecked, user must verify before upload
-        if "safety_checklist" not in row:
-            row["safety_checklist"] = {
-                "has_original_narration": False,
-                "source_clip_under_10s": False,
-                "manually_reviewed": False,
-                "title_not_imitating_source": False,
-                "description_has_source_credit": False,
-            }
 
     # Step 8 — Save manifest
     manifest_path = os.path.join(cfg.outputs_dir, "render_manifest.json")
@@ -267,21 +257,6 @@ def run_pipeline(cfg) -> list[dict]:
         f"\n💾 Render manifest disimpan ke {manifest_path} ({len(render_manifest)} item)"
     )
 
-    # Step 9 — Safety reminder
-    print("\n" + "=" * 70)
-    print("🛡️ SAFETY CHECKLIST — Sebelum Upload")
-    print("=" * 70)
-    print("  □ Sudah menambahkan narasi/voice-over/analisis sendiri?")
-    print("  □ Clip sumber ≤ 10 detik per potongan?")
-    print("  □ Sudah review manual setiap video?")
-    print("  □ Judul & thumbnail BUKAN meniru channel/creator sumber?")
-    print("  □ Description mencantumkan credit sumber?")
-    print("  □ Konten kamu yang DOMINAN, bukan konten orang?")
-    print("=" * 70)
-    print("  ⚠️  Jangan upload tanpa memenuhi checklist di atas.")
-    print("  ⚠️  Channel clipping mentah sangat rentan kena banned.")
-    print("  💡 Jadikan channel analisis/komentar, bukan channel repost clip.")
-    print("=" * 70)
 
     return render_manifest
 
