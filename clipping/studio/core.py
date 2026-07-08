@@ -917,6 +917,58 @@ def proses_klip(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+        # EDGE GLOW POST-PROCESSING (full clip)
+        if getattr(cfg, "edge_glow", False):
+            print("   ✨ [Edge Glow] Applying ambient edge glow to full clip...")
+            for final_path, _, _, dims in concat_runs:
+                if not os.path.exists(final_path):
+                    continue
+                gw, gh = dims
+                # Get video duration via ffprobe
+                try:
+                    dur_res = subprocess.run([
+                        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1", final_path
+                    ], stdout=subprocess.PIPE, text=True, check=True)
+                    clip_dur = float(dur_res.stdout.strip())
+                except Exception:
+                    clip_dur = 60.0
+
+                glow_full_path = os.path.join(cfg.outputs_dir, f"glow_full_{rank}.mp4")
+                generate_edge_glow_video(
+                    glow_full_path, gw, gh,
+                    duration=min(10.0, clip_dur),
+                    fps=30,
+                    glow_speed=0.15,
+                    opacity=0.45,
+                )
+
+                # Overlay via FFmpeg blend=screen
+                tmp_glowed = final_path + ".glowed.mp4"
+                cmd_glow = [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", final_path,
+                    "-stream_loop", "-1", "-i", glow_full_path,
+                    "-filter_complex",
+                    f"[1:v]scale={gw}:{gh}[glow]; [0:v][glow]blend=all_mode=screen:shortest=1[v_out]",
+                    "-map", "[v_out]", "-map", "0:a?",
+                    "-c:a", "copy",
+                    "-t", str(clip_dur),
+                ]
+                cmd_glow += std_p
+                cmd_glow.append(tmp_glowed)
+
+                try:
+                    subprocess.run(cmd_glow, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                    os.replace(tmp_glowed, final_path)
+                    print(f"   ✅ [Edge Glow] Applied to {os.path.basename(final_path)}")
+                except subprocess.CalledProcessError as e:
+                    print(f"   ⚠️ [Edge Glow] Failed for {os.path.basename(final_path)}: {e.stderr[-300:]}")
+                    if os.path.exists(tmp_glowed):
+                        os.remove(tmp_glowed)
+                finally:
+                    if os.path.exists(glow_full_path):
+                        os.remove(glow_full_path)
 
         judul_thumbnail = judul_en or judul or f"Highlight {rank}"
         buat_thumbnail(out_vid, out_thm, judul_thumbnail, cfg)

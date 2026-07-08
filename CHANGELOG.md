@@ -8,6 +8,22 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
 
+## [v1.9.0] - 2026-07-09
+
+### Added
+- **B-Roll in Split-Screen & Camera-Switch**: B-Roll footage (Pexels) is now composited in `--split-screen` and `--camera-switch` modes, matching the existing behavior of the standard hybrid renderer. Previously, B-Roll data was only utilised in hybrid mode.
+- **Voiceover Length Control (`--voiceover-length`)**: New CLI flag to control AI-generated commentary script duration. Options: `short` (~5-15s, 1-2 sentences), `normal` (~20-40s, 3-5 sentences), `long` (~40-60s, 5-7 sentences). Default changed to `short` so voice-over intros are brief by default.
+- **Ambient Edge Glow on Voice-Over Intro**: The freeze-frame voice-over intro segment now features a slow-moving, multi-hue gradient glow around all four edges (Gemini-style ambient lighting). Generated via the new `clipping/studio/edge_glow.py` module and composited using FFmpeg `blend=screen`.
+- **Full-Clip Edge Glow (`--edge-glow`)**: New CLI flag to apply the ambient edge glow effect across the **entire** output video (hook, voice-over, B-roll, and main clip). Without this flag, glow only appears on the voice-over intro segment. Implemented as a post-processing pass after final concat.
+
+### Changed
+- **Relaxed Spectrum Visualizer**: The voice-over intro waveform animation is now calmer — added a `lowpass=f=400` audio filter (removes high-frequency jitter) and reduced the render rate from `30` to `20` fps for smoother, less "noisy" wave movement.
+
+### New Modules
+- **`clipping/studio/edge_glow.py`**: Self-contained generator that produces a looping edge-glow overlay video using vectorised NumPy/OpenCV operations and piped FFmpeg encoding.
+
+---
+
 ## [v1.8.1] - 2026-06-29
 
 ### Fixed

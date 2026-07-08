@@ -653,6 +653,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.15,
         help="Volume of the original video audio when voice-over is active.",
     )
+    vo_group.add_argument(
+        "--edge-glow",
+        action="store_true",
+        default=False,
+        help="Enable ambient edge glow effect on the entire clip (hook, clip, broll, voiceover). Without this flag, glow only appears on voice-over intro.",
+    )
 
     return p
 
@@ -805,6 +811,7 @@ def build_config(argv: list[str] | None = None) -> SimpleNamespace:
         voiceover_length=args.voiceover_length,
         voiceover_volume=args.voiceover_volume,
         original_volume=args.original_volume,
+        edge_glow=args.edge_glow,
     )
 
     return cfg
