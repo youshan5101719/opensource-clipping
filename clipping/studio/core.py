@@ -88,6 +88,8 @@ open_ffmpeg_video_writer = _ffmpeg_utils.open_ffmpeg_video_writer
 build_ffmpeg_progress_cmd = _ffmpeg_utils.build_ffmpeg_progress_cmd
 run_ffmpeg_with_progress = _ffmpeg_utils.run_ffmpeg_with_progress
 v2_helpers = _load_studio_internal_module("v2_helpers.py", "clipping_studio_v2_helpers")
+edge_glow_mod = _load_studio_internal_module("edge_glow.py", "clipping_studio_edge_glow")
+generate_edge_glow_video = edge_glow_mod.generate_edge_glow_video
 
 def proses_klip(
     rank, clip, rasio, glitch_ts, data_segmen, cfg, video_encoder, diarization_data=None
@@ -788,29 +790,49 @@ def proses_klip(
                     ass_vo_filter = f"; [v_over]subtitles={esc_ass_vo}:fontsdir={esc_fontsdir_vo}[v_out]"
                     overlay_out = "[v_over]"
 
+                # Generate edge glow overlay video
+                glow_path = os.path.join(cfg.outputs_dir, f"vo_glow_{rank}.mp4")
+                print("   ✨ [VO] Generating ambient edge glow...")
+                generate_edge_glow_video(
+                    glow_path, vo_w, vo_h,
+                    duration=min(10.0, vo_duration),
+                    fps=30,
+                    glow_speed=0.15,
+                    opacity=0.45,
+                )
+
+                # Build filter: bg_frame → overlay glow → overlay spectrum → [subtitles]
+                # Input 0: freeze frame (looped)
+                # Input 1: VO audio
+                # Input 2: edge glow video (stream_looped)
+                # Input 3 (optional): BGM
                 v_filter_vo = (
-                    f"scale={vo_w}:{vo_h}:force_original_aspect_ratio=increase,crop={vo_w}:{vo_h},"
+                    f"[0:v]scale={vo_w}:{vo_h}:force_original_aspect_ratio=increase,crop={vo_w}:{vo_h},"
                     f"colorchannelmixer=rr=0.3:gg=0.3:bb=0.3[v_bg]; "
+                    f"[2:v]scale={vo_w}:{vo_h}[glow_scaled]; "
+                    f"[v_bg][glow_scaled]blend=all_mode=screen:shortest=1[v_glowed]; "
                     f"[1:a]asplit=2[vo_a][vo_wave_in]; "
                     # f"[vo_wave_in]showwaves=s=800x300:mode=cline:colors=0x00FFFF:rate=30,format=rgba,colorkey=0x000000:0.1:0.1[wave_v]; "
                     f"[vo_wave_in]lowpass=f=400,showwaves=s=800x300:mode=cline:colors=0x00FFFF:rate=20,format=rgba,colorkey=0x000000:0.1:0.1[wave_v]; "
-                    f"[v_bg][wave_v]overlay=(W-w)/2:(H-h)/2:shortest=1{overlay_out}"
+                    f"[v_glowed][wave_v]overlay=(W-w)/2:(H-h)/2:shortest=1{overlay_out}"
                     f"{ass_vo_filter}"
                 )
                 
                 cmd_vo_base = [
                     "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                     "-loop", "1", "-framerate", "30", "-i", frame_path,
-                    "-i", vo_data["audio_path"]
+                    "-i", vo_data["audio_path"],
+                    "-stream_loop", "-1", "-i", glow_path,
                 ]
                 
                 # Audio mixing with BGM for VO intro
+                # Input indices: 0=frame, 1=audio, 2=glow, 3=bgm (if present)
                 if aktif_bgm and file_bgm:
                     cmd_vo_base.extend(["-stream_loop", "-1", "-i", file_bgm])
                     bgm_vol = cfg.bgm_base_volume
                     vo_vol = getattr(cfg, "voiceover_volume", 1.0)
                     audio_filter_vo = (
-                        f"[2:a]volume={bgm_vol}[bgm_vol]; "
+                        f"[3:a]volume={bgm_vol}[bgm_vol]; "
                         f"[vo_a]volume={vo_vol}[vo_loud]; "
                         f"[bgm_vol][vo_loud]amix=inputs=2:duration=first:dropout_transition=2[a_out]"
                     )
@@ -833,6 +855,8 @@ def proses_klip(
                 
             if os.path.exists(frame_path):
                 os.remove(frame_path)
+            if os.path.exists(glow_path):
+                os.remove(glow_path)
 
 
         # FINAL CONCAT
