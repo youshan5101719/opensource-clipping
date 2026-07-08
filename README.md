@@ -25,6 +25,7 @@
 | **Auto YouTube Uploader** | Automatically upload highlight clips to YouTube with scheduling support and full metadata (optional) |
 | **Podcast Split-Screen** | Auto speaker diarization via **Pyannote** with top-bottom split-screen layout for podcasts (9:16). Supports **3+ speakers across multiple scenes** with per-speaker frozen frame fallback |
 | **Podcast Camera Switch** | Auto active-speaker detection with scene-aware switching — full 9:16 crop focuses on whoever is talking; blurred pillarbox only when speakers in the same scene talk simultaneously (9:16) |
+| **AI Voice-Over** | Converts auto-clips into original commentary/reaction videos using **Gemini** (script generation) and **edge-tts** (free text-to-speech), complete with audio ducking and text override |
 
 > 🎬 **NEW: Story Clip Mode (`--story-mode`)**  
 > Need to assemble a narrative from multiple specific video sources (like a brand campaign)? We've just introduced the Multi-Source Story Clip Mode!  
@@ -341,6 +342,32 @@ python main.py --url "VIDEO_URL" --hook-v2 --hook-v2-items 4 --hook-v2-style "gl
 
 > [!IMPORTANT]
 > Audio-based features (diarization) require a **HuggingFace Token** (`HF_TOKEN`) in your `.env` file and acceptance of the Pyannote model agreement on HuggingFace.
+
+## 🗣️ AI Voice-Over Commentary
+
+Prevent YouTube copyright/reused content strikes by turning raw clips into **original commentary/reaction videos** automatically.
+
+When you pass the `--voiceover` flag, the pipeline will:
+1. Generate a sharp, opinionated 3-5 sentence analysis script using **Gemini AI** based on the clip's specific transcript.
+2. Synthesize the script into natural-sounding speech using **edge-tts** (free, no GPU required).
+3. **Duck** the original video's audio down to 15% volume and overlay the AI voice-over at 100% volume.
+4. **Override** the burned-in karaoke subtitles so they display the AI narrator's words instead of the original video transcript.
+
+**Example Usage:**
+```bash
+# Basic voice-over (Uses default en-US-AvaNeural and English language)
+python main.py --url "VIDEO_URL" --voiceover
+
+# Voice-over in Indonesian with reaction style
+python main.py --url "VIDEO_URL" --voiceover --voiceover-lang id --voiceover-voice id-ID-ArdiNeural --voiceover-style reaction
+```
+
+**Config Options:**
+- `--voiceover-voice`: Choose the TTS voice (e.g. `en-US-AvaNeural`, `id-ID-GadisNeural`).
+- `--voiceover-lang`: Script language (`en` or `id`).
+- `--voiceover-style`: `analysis` (default), `reaction`, `lesson`, or `summary`.
+- `--voiceover-volume`: Volume of narrator (default 1.0).
+- `--original-volume`: Volume of ducked video audio (default 0.15).
 
 ## 🎵 BGM (Background Music) Settings
 

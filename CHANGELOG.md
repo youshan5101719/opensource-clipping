@@ -8,6 +8,22 @@ All notable changes to the **OpenSource Clipping** project will be documented in
 - **Patch (x.y.Z)**: Incremented for backward-compatible bug fixes or minor patches.
 
 
+## [v1.8.1] - 2026-06-29
+
+### Fixed
+- **AV1 Codec Filter Bug**: Fixed an issue where `yt-dlp` would download AV1 videos (which crash Colab T4 hardware decoding) when `--source-height 1080` or `max` was used. AV1 is now strictly excluded even if packaged inside an `.mp4` container.
+- **Voice-Over `use-dlp-subs` Crash**: Fixed a `KeyError: 'text'` crash that prevented voice-over generation when using the `--use-dlp-subs` flag, by safely supporting the YouTube JSON3 segment format.
+
+## [v1.8.0] - 2026-06-29
+
+### Added
+- **AI Voice-Over Commentary Pipeline**: Added `--voiceover` flag to transform auto-clips into original commentary/reaction videos to prevent copyright/reused content bans.
+  - Generates sharp analysis/opinion scripts (3-5 sentences) using Gemini AI.
+  - Synthesizes natural-sounding narration using `edge-tts` (free, no GPU required).
+  - Automatically ducks original video audio (to 15%) and overlays the AI narration as the dominant track.
+  - Overrides the burned-in video subtitles to display the AI's commentary text instead of the original transcript.
+- **Voice-Over Config Options**: Added `--voiceover-voice` (default: `en-US-AvaNeural`), `--voiceover-lang` (default: `en`), `--voiceover-style` (analysis, reaction, lesson, summary), `--voiceover-volume`, and `--original-volume`.
+
 ## [v1.7.6] - 2026-06-26
 
 ### Added

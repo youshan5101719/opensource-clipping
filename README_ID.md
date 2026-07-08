@@ -25,6 +25,7 @@
 | **Auto YouTube Uploader** | Upload klip highlight beserta metadata ke YouTube secara otomatis dengan penjadwalan (opsional) |
 | **Podcast Split-Screen** | Diarization speaker otomatis via **Pyannote** dengan layout split-screen atas-bawah untuk podcast (9:16). Mendukung **3+ speaker lintas scene** dengan frozen frame fallback per-speaker |
 | **Podcast Camera Switch** | Deteksi speaker aktif otomatis dengan switching yang scene-aware — crop full 9:16 fokus ke pembicara aktif; blurred pillarbox hanya saat speaker di scene yang sama bicara bersamaan (9:16) |
+| **AI Voice-Over** | Mengubah auto-clip menjadi video reaksi/komentar original menggunakan **Gemini** (pembuat script) dan **edge-tts** (text-to-speech gratis), lengkap dengan audio ducking dan penimpaan teks subtitle |
 
 > 🎬 **BARU: Mode Story Clip (`--story-mode`)**  
 > Perlu merakit cerita dari potongan adegan spesifik di berbagai sumber video (misalnya untuk *campaign* brand)? Gunakan fitur Story Clip multi-sumber!  
@@ -339,6 +340,32 @@ python main.py --url "URL_VIDEO" --hook-v2 --hook-v2-items 4 --hook-v2-style "gl
 
 > [!IMPORTANT]
 > Fitur diarization memerlukan persetujuan model Pyannote di HuggingFace dan token `HF_TOKEN` di file `.env`.
+
+## 🗣️ AI Voice-Over Commentary
+
+Cegah teguran hak cipta (copyright) atau konten berulang (reused content) dari YouTube dengan mengubah klip mentah menjadi **video komentar/reaksi original** secara otomatis.
+
+Ketika Anda menggunakan argumen `--voiceover`, sistem akan:
+1. Membuat script analisis/opini tajam (3-5 kalimat) menggunakan **Gemini AI** berdasarkan transkrip khusus klip tersebut.
+2. Mengubah script menjadi suara natural menggunakan **edge-tts** (gratis, tanpa butuh GPU).
+3. **Mengecilkan (ducking)** suara video asli ke volume 15% dan menimpa dengan suara AI Voice-Over di volume 100%.
+4. **Menimpa** teks subtitle karaoke di layar sehingga menampilkan kata-kata dari narator AI, bukan dari transkrip video asli.
+
+**Contoh Penggunaan:**
+```bash
+# Voice-over bahasa Inggris (Menggunakan default en-US-AvaNeural dan bahasa Inggris)
+python main.py --url "URL_VIDEO" --voiceover
+
+# Voice-over bahasa Indonesia dengan gaya reaksi
+python main.py --url "URL_VIDEO" --voiceover --voiceover-lang id --voiceover-voice id-ID-ArdiNeural --voiceover-style reaction
+```
+
+**Opsi Konfigurasi:**
+- `--voiceover-voice`: Pilih suara TTS (misal `en-US-AvaNeural`, `id-ID-GadisNeural`).
+- `--voiceover-lang`: Bahasa script (`en` atau `id`).
+- `--voiceover-style`: Gaya bahasa `analysis` (default), `reaction`, `lesson`, atau `summary`.
+- `--voiceover-volume`: Volume suara narator (default 1.0).
+- `--original-volume`: Volume suara video asli saat narator bicara (default 0.15).
 
 ## 🎬 Penjelasan Hook V2 & Segment Trimming
 
